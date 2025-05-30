@@ -1,4 +1,3 @@
-
 import logging
 import asyncio
 import csv
@@ -85,12 +84,24 @@ async def handle_answer_button(callback_query: types.CallbackQuery):
             "group_msg_id": callback_query.message.message_id
         }
 
+        # Edit the original message to replace the button with a tick
+        await callback_query.message.edit_reply_markup(
+            reply_markup=InlineKeyboardBuilder()
+            .button(text="✓ Answered", callback_data="answered")
+            .adjust(1)
+            .as_markup()
+        )
+
         await bot.send_message(admin_id, "💬 Please reply to this message with your answer to the user:")
-        await callback_query.answer()
+        await callback_query.answer("You can now reply to the user")
 
     except Exception as e:
         logger.error("❌ Error handling answer button: %s", e)
         await callback_query.answer("Error occurred.")
+
+@router.callback_query(F.data == "answered")
+async def handle_already_answered(callback_query: types.CallbackQuery):
+    await callback_query.answer("This question has already been answered.", show_alert=True)
 
 @router.message()
 async def handle_all_messages(message: types.Message):
@@ -100,7 +111,6 @@ async def handle_all_messages(message: types.Message):
     admin_id = message.from_user.id
     context = waiting_replies.get(admin_id)
 
-
     # Admin reply
     if context and message.chat.type == 'private':
         try:
@@ -108,9 +118,23 @@ async def handle_all_messages(message: types.Message):
                 chat_id=context["user_chat_id"],
                 text=f"📬 Answer from support:\n\n{message.text}"
             )
-            await message.answer("\u2705 Answer was sent to the user.")
+            
+            # Edit the original question message to mark it as resolved
+            try:
+                await bot.edit_message_reply_markup(
+                    chat_id=ADMIN_GROUP_ID,
+                    message_id=context["group_msg_id"],
+                    reply_markup=None  # Remove buttons completely
+                )
+            except Exception as e:
+                logger.error(f"Couldn't edit original message: {e}")
+
+            await message.answer("✅ Answer was sent to the user.")
+            
+            # Clean up
             waiting_replies.pop(admin_id, None)
             pending_questions.pop(context["group_msg_id"], None)
+            
         except Exception as e:
             logger.error("❌ Error sending answer: %s", e)
             await message.answer(f"❌ Failed to send answer: {e}")
@@ -151,7 +175,7 @@ async def handle_all_messages(message: types.Message):
             # Save to CSV
             save_to_csv(user_id, module, question_text)
             
-            await message.answer("\u2705 Your question was sent to the support team!")
+            await message.answer("✅ Your question was sent to the support team!")
             
             # Clear user's state after question is sent
             user_states.pop(user_id, None)
@@ -182,4 +206,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-  
