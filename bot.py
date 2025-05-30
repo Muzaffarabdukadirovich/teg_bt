@@ -10,7 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.filters import Command
 
 # Bot configuration
-BOT_TOKEN = "7956820680:AAGZb3wQ4uGKn7p_z6BQaFl-eIBD1q9pO9U"
+BOT_TOKEN = "8146573794:AAGcGkQbjemK6JSSiEasV3dsljz0MO38kKg"
 ADMIN_GROUP_ID = -1002592730994
 CSV_FILE = "questions.csv"
 
