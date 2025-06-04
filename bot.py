@@ -12,7 +12,7 @@ from aiogram.filters import Command
 
 # Bot konfiguratsiyasi
 BOT_TOKEN = "7383119117:AAFES5Jx0kmYcMClOAsb099VI8ZzeWi4PjU"
-ADMIN_GROUP_ID = -1002592730994
+ADMIN_GROUP_ID = -1002459383963
 CSV_FILE = "savollar.csv"
 HISOBOT_PAROLI = "menga_savol_ber"  # Hisobot uchun parol
 
