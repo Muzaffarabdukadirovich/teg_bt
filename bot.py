@@ -13,6 +13,7 @@ from aiogram.filters import Command
 BOT_TOKEN = "8146573794:AAGcGkQbjemK6JSSiEasV3dsljz0MO38kKg"
 ADMIN_GROUP_ID = -1002592730994
 CSV_FILE = "questions.csv"
+REPORT_PASSWORD = "ask_me_question"  # Password for accessing reports
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -27,7 +28,7 @@ router = Router()
 # In-memory storage
 pending_questions = {}  # {group_msg_id: {user_id, user_chat_id, module}}
 waiting_replies = {}    # {admin_id: {user_id, user_chat_id, group_msg_id}}
-user_states = {}        # {user_id: {'module': selected_module}}
+user_states = {}        # {user_id: {'module': selected_module, 'waiting_password': bool}}
 
 # Modules for the buttons
 MODULES = ["HTML", "CSS", "Bootstrap", "WIX", "JavaScript", "Scratch"]
@@ -38,6 +39,17 @@ def save_to_csv(user_id, module, question):
     with open(CSV_FILE, mode='a', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
         writer.writerow([user_id, module, question, timestamp])
+
+def read_csv_data():
+    """Read all data from CSV file"""
+    try:
+        with open(CSV_FILE, mode='r', newline='', encoding='utf-8') as file:
+            reader = csv.reader(file)
+            # Skip header
+            next(reader)
+            return list(reader)
+    except FileNotFoundError:
+        return []
 
 @router.message(Command("start"))
 async def send_welcome(message: types.Message):
@@ -52,6 +64,47 @@ async def send_welcome(message: types.Message):
         "Please select the module you need help with:",
         reply_markup=builder.as_markup(resize_keyboard=True)
     )
+
+@router.message(Command("report"))
+async def request_report_password(message: types.Message):
+    """Ask for password to access reports"""
+    user_id = message.from_user.id
+    user_states[user_id] = {'waiting_password': True}
+    await message.answer("🔒 Bazaga kirish uchun parolni kiriting:")
+
+@router.message(F.text == REPORT_PASSWORD)
+async def send_report(message: types.Message):
+    """Send the report data if password is correct"""
+    user_id = message.from_user.id
+    
+    # Check if user was waiting for password prompt
+    if user_id in user_states and user_states[user_id].get('waiting_password'):
+        data = read_csv_data()
+        if not data:
+            await message.answer("Malumot topilmadi.")
+            return
+            
+        # Format the report
+        report_text = "📊 Question Report:\n\n"
+        for row in data:
+            user_id, module, question, timestamp = row
+            report_text += (
+                f"🆔 User ID: {user_id}\n"
+                f"📌 Module: {module}\n"
+                f"🕒 Time: {timestamp}\n"
+                f"❓ Question: {question}\n"
+                f"{'-'*30}\n"
+            )
+        
+        # Split long messages to avoid Telegram limits
+        max_length = 4000
+        for i in range(0, len(report_text), max_length):
+            await message.answer(report_text[i:i+max_length])
+        
+        # Clear the waiting_password state
+        user_states.pop(user_id, None)
+    else:
+        await message.answer("Please use /report command first to request access.")
 
 @router.message(F.text.in_(MODULES))
 async def handle_module_selection(message: types.Message):
