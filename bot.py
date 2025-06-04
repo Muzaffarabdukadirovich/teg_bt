@@ -1,6 +1,7 @@
 import logging
 import os
 import csv
+import asyncio
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types, Router, F
 from aiogram.enums import ParseMode
@@ -55,7 +56,7 @@ def csvdan_oqish():
     try:
         with open(CSV_FILE, 'r', newline='', encoding='utf-8') as fayl:
             oquvchi = csv.reader(fayl)
-            keyingi(oquvchi)  # Sarlavhani o'tkazib yuborish
+            next(oquvchi)  # Sarlavhani o'tkazib yuborish
             return list(oquvchi)
     except FileNotFoundError:
         return []
