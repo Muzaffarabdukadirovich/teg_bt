@@ -11,7 +11,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.filters import Command
 
 # Bot konfiguratsiyasi
-BOT_TOKEN = "7383119117:AAFES5Jx0kmYcMClOAsb099VI8ZzeWi4PjU"
+BOT_TOKEN = "7383119117:AAFnL4h4B6eF0tzJRLRkWDUVkRf7rdrg1QM"
 ADMIN_GROUP_ID = -1002459383963
 CSV_FILE = "savollar.csv"
 HISOBOT_PAROLI = "menga_savol_ber"  # Hisobot uchun parol
