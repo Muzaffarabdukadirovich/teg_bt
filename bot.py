@@ -140,10 +140,16 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
             "gruppa_xabari_id": callback_query.message.message_id
         }
 
-        # Original xabarni tahrirlash
+        # Admin ismini olish
+        admin = await bot.get_chat(admin_id)
+        admin_ismi = admin.first_name
+        if admin.last_name:
+            admin_ismi += " " + admin.last_name
+
+        # Original xabarni tahrirlash (admin ismi bilan)
         await callback_query.message.edit_reply_markup(
             reply_markup=InlineKeyboardBuilder()
-            .button(text="✓ Javob berildi", callback_data="javob_berildi")
+            .button(text=f"✓ Javob berildi || {admin_ismi}", callback_data="javob_berildi")
             .adjust(1)
             .as_markup()
         )
@@ -154,7 +160,6 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
     except Exception as e:
         logger.error(f"Javob tugmasida xato: {e}")
         await callback_query.answer("Xato yuz berdi.")
-
 @router.message()
 async def barcha_xabarlar(message: types.Message):
     if message.from_user.is_bot or not message.text:
