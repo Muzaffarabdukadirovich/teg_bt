@@ -61,31 +61,39 @@ async def forward_to_admin_group(content, modul, foydalanuvchi_id, username):
     builder.adjust(1)
     
     caption = f"❓ Savol ({modul}) @{username or 'foydalanuvchi'} (ID: {foydalanuvchi_id})"
+    content_text = content.text if content.content_type == ContentType.TEXT else content.caption or ""
     
     if content.content_type == ContentType.TEXT:
         sent = await bot.send_message(
             chat_id=ADMIN_GROUP_ID,
-            text=f"{caption}:\n\n{content.text}",
+            text=f"{caption}:\n\n{content_text}",
             reply_markup=builder.as_markup()
         )
     elif content.content_type == ContentType.PHOTO:
         sent = await bot.send_photo(
             chat_id=ADMIN_GROUP_ID,
             photo=content.photo[-1].file_id,
-            caption=f"{caption}:\n\n{content.caption or ''}",
+            caption=f"{caption}:\n\n{content_text}",
             reply_markup=builder.as_markup()
         )
     elif content.content_type == ContentType.VIDEO:
         sent = await bot.send_video(
             chat_id=ADMIN_GROUP_ID,
             video=content.video.file_id,
-            caption=f"{caption}:\n\n{content.caption or ''}",
+            caption=f"{caption}:\n\n{content_text}",
             reply_markup=builder.as_markup()
         )
     elif content.content_type == ContentType.VOICE:
         sent = await bot.send_voice(
             chat_id=ADMIN_GROUP_ID,
             voice=content.voice.file_id,
+            caption=caption,
+            reply_markup=builder.as_markup()
+        )
+    elif content.content_type == ContentType.DOCUMENT:
+        sent = await bot.send_document(
+            chat_id=ADMIN_GROUP_ID,
+            document=content.document.file_id,
             caption=caption,
             reply_markup=builder.as_markup()
         )
@@ -108,6 +116,41 @@ async def boshlash(message: types.Message):
         reply_markup=builder.as_markup(resize_keyboard=True)
     )
 
+@router.message(Command("hisobot"))
+async def hisobot_paroli(message: types.Message):
+    """Hisobot uchun parol so'rash"""
+    foydalanuvchi_id = message.from_user.id
+    foydalanuvchi_holati[foydalanuvchi_id] = {'parol_kutilyapti': True}
+    await message.answer("🔒 Iltimos, hisobotni ko'rish uchun parolni kiriting:")
+
+@router.message(F.text == HISOBOT_PAROLI)
+async def hisobot_yuborish(message: types.Message):
+    """To'g'ri parol kiritilganda hisobotni yuborish"""
+    foydalanuvchi_id = message.from_user.id
+    
+    if foydalanuvchi_id in foydalanuvchi_holati and foydalanuvchi_holati[foydalanuvchi_id].get('parol_kutilyapti'):
+        ma_lumotlar = csvdan_oqish()
+        if not ma_lumotlar:
+            await message.answer("❌ Hisobotda ma'lumot mavjud emas.")
+            return
+            
+        hisobot_matni = "📊 Savollar hisoboti:\n\n"
+        for qator in ma_lumotlar:
+            foydalanuvchi_id, modul, savol, content_type, sana_vaqt = qator
+            hisobot_matni += (
+                f"🆔 Foydalanuvchi ID: {foydalanuvchi_id}\n"
+                f"📌 Modul: {modul}\n"
+                f"📄 Kontent turi: {content_type}\n"
+                f"🕒 Vaqt: {sana_vaqt}\n"
+                f"❓ Savol: {savol}\n"
+                f"{'-'*30}\n"
+            )
+        
+        await message.answer(hisobot_matni)
+        foydalanuvchi_holati.pop(foydalanuvchi_id, None)
+    else:
+        await message.answer("Iltimos, avval /hisobot buyrug'ini yuboring.")
+
 @router.message(F.text.in_(MODULLAR))
 async def modul_tanlash(message: types.Message):
     """Modul tanlashni qayta ishlash"""
@@ -117,11 +160,17 @@ async def modul_tanlash(message: types.Message):
     foydalanuvchi_holati[foydalanuvchi_id] = {'modul': modul}
     
     await message.answer(
-        f"📝 Siz <b>{modul}</b> modulini tanladingiz. Iltimos, savolingizni yuboring (matn, rasm, video yoki ovozli xabar):",
+        f"📝 Siz <b>{modul}</b> modulini tanladingiz. Iltimos, savolingizni yuboring (matn, rasm, video, ovozli xabar yoki fayl):",
         reply_markup=types.ReplyKeyboardRemove()
     )
 
-@router.message(F.content_type.in_({ContentType.TEXT, ContentType.PHOTO, ContentType.VIDEO, ContentType.VOICE}))
+@router.message(F.content_type.in_({
+    ContentType.TEXT, 
+    ContentType.PHOTO, 
+    ContentType.VIDEO, 
+    ContentType.VOICE,
+    ContentType.DOCUMENT
+}))
 async def foydalanuvchi_savoli(message: types.Message):
     """Foydalanuvchi savolini qabul qilish"""
     if message.chat.type != 'private' or message.from_user.is_bot:
@@ -142,15 +191,11 @@ async def foydalanuvchi_savoli(message: types.Message):
         sent = await forward_to_admin_group(message, modul, foydalanuvchi_id, username)
         
         if not sent:
-            await message.answer("❌ Faqat matn, rasm, video yoki ovozli xabarlar qabul qilinadi")
+            await message.answer("❌ Faqat matn, rasm, video, ovozli xabar yoki fayllar qabul qilinadi")
             return
 
         # Ma'lumotlarni saqlash
-        content_text = ""
-        if message.content_type == ContentType.TEXT:
-            content_text = message.text
-        elif message.caption:
-            content_text = message.caption
+        content_text = message.text if message.content_type == ContentType.TEXT else message.caption or ""
             
         kutilayotgan_savollar[sent.message_id] = {
             "foydalanuvchi_id": foydalanuvchi_id,
@@ -180,11 +225,14 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
             await callback_query.answer("Faqat adminlar javob berishi mumkin.")
             return
 
+        # Savol haqida ma'lumot olish
+        savol_info = kutilayotgan_savollar.get(callback_query.message.message_id, {})
+        
         javob_kutayotganlar[admin_id] = {
             "foydalanuvchi_id": foydalanuvchi_id,
             "foydalanuvchi_chat_id": foydalanuvchi_chat_id,
             "gruppa_xabari_id": callback_query.message.message_id,
-            "content_type": kutilayotgan_savollar.get(callback_query.message.message_id, {}).get("content_type", "text")
+            "content_type": savol_info.get("content_type", "text")
         }
 
         # Admin ismini olish
@@ -201,14 +249,24 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
             .as_markup()
         )
 
-        await bot.send_message(admin_id, "💬 Iltimos, foydalanuvchiga javobingizni shu xabar orqali yuboring (matn, rasm, video yoki ovozli xabar):")
+        await bot.send_message(
+            admin_id, 
+            "💬 Iltimos, foydalanuvchiga javobingizni shu xabar orqali yuboring " + 
+            "(matn, rasm, video, ovozli xabar yoki fayl):"
+        )
         await callback_query.answer("Endi foydalanuvchiga javob yozishingiz mumkin")
 
     except Exception as e:
         logger.error(f"Javob tugmasida xato: {e}")
         await callback_query.answer("Xato yuz berdi.")
 
-@router.message(F.content_type.in_({ContentType.TEXT, ContentType.PHOTO, ContentType.VIDEO, ContentType.VOICE}))
+@router.message(F.content_type.in_({
+    ContentType.TEXT, 
+    ContentType.PHOTO, 
+    ContentType.VIDEO, 
+    ContentType.VOICE,
+    ContentType.DOCUMENT
+}))
 async def admin_javobi(message: types.Message):
     """Admin javobini qayta ishlash"""
     if message.chat.type != 'private' or message.from_user.is_bot:
@@ -222,31 +280,39 @@ async def admin_javobi(message: types.Message):
         
     try:
         # Foydalanuvchiga javobni yuborish
+        caption_prefix = "📬 Supportdan javob:\n\n"
+        
         if message.content_type == ContentType.TEXT:
             await bot.send_message(
                 chat_id=context["foydalanuvchi_chat_id"],
-                text=f"📬 Supportdan javob:\n\n{message.text}"
+                text=f"{caption_prefix}{message.text}"
             )
         elif message.content_type == ContentType.PHOTO:
             await bot.send_photo(
                 chat_id=context["foydalanuvchi_chat_id"],
                 photo=message.photo[-1].file_id,
-                caption=f"📬 Supportdan javob:\n\n{message.caption or ''}"
+                caption=f"{caption_prefix}{message.caption or ''}"
             )
         elif message.content_type == ContentType.VIDEO:
             await bot.send_video(
                 chat_id=context["foydalanuvchi_chat_id"],
                 video=message.video.file_id,
-                caption=f"📬 Supportdan javob:\n\n{message.caption or ''}"
+                caption=f"{caption_prefix}{message.caption or ''}"
             )
         elif message.content_type == ContentType.VOICE:
             await bot.send_voice(
                 chat_id=context["foydalanuvchi_chat_id"],
                 voice=message.voice.file_id,
-                caption="📬 Supportdan javob"
+                caption=caption_prefix.strip()
+            )
+        elif message.content_type == ContentType.DOCUMENT:
+            await bot.send_document(
+                chat_id=context["foydalanuvchi_chat_id"],
+                document=message.document.file_id,
+                caption=caption_prefix.strip()
             )
             
-        # Original xabarni tahrirlash
+        # Original xabarni tahrirlash (tugmani o'chirish)
         try:
             await bot.edit_message_reply_markup(
                 chat_id=ADMIN_GROUP_ID,
