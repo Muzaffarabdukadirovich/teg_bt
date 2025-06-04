@@ -4,7 +4,7 @@ import csv
 import asyncio
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types, Router, F
-from aiogram.enums import ParseMode
+from aiogram.enums import ParseMode, ContentType
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
@@ -27,14 +27,14 @@ dp = Dispatcher(storage=storage)
 router = Router()
 
 # Xotira saqlash
-kutilayotgan_savollar = {}  # {gruppa_xabari_id: {foydalanuvchi_id, chat_id, modul}}
-javob_kutayotganlar = {}    # {admin_id: {foydalanuvchi_id, chat_id, gruppa_xabari_id}}
+kutilayotgan_savollar = {}  # {gruppa_xabari_id: {foydalanuvchi_id, chat_id, modul, content_type}}
+javob_kutayotganlar = {}    # {admin_id: {foydalanuvchi_id, user_chat_id, group_msg_id}}
 foydalanuvchi_holati = {}   # {foydalanuvchi_id: {'modul': tanlangan_modul}}
 
 # Modullar
 MODULLAR = ["HTML", "CSS", "Bootstrap", "WIX", "JavaScript", "Scratch"]
 
-def csvga_yozish(foydalanuvchi_id, modul, savol):
+def csvga_yozish(foydalanuvchi_id, modul, savol, content_type="text"):
     """Savollarni CSV fayliga yozish"""
     sana_vaqt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
@@ -42,24 +42,57 @@ def csvga_yozish(foydalanuvchi_id, modul, savol):
         if not os.path.exists(CSV_FILE):
             with open(CSV_FILE, 'w', newline='', encoding='utf-8') as fayl:
                 yozuvchi = csv.writer(fayl)
-                yozuvchi.writerow(["foydalanuvchi_id", "modul", "savol", "sana_vaqt"])
+                yozuvchi.writerow(["foydalanuvchi_id", "modul", "savol", "content_type", "sana_vaqt"])
         
         # Ma'lumotlarni qo'shish
         with open(CSV_FILE, 'a', newline='', encoding='utf-8') as fayl:
             yozuvchi = csv.writer(fayl)
-            yozuvchi.writerow([foydalanuvchi_id, modul, savol, sana_vaqt])
+            yozuvchi.writerow([foydalanuvchi_id, modul, savol, content_type, sana_vaqt])
     except Exception as e:
         logger.error(f"CSVga yozishda xato: {e}")
 
-def csvdan_oqish():
-    """CSV faylidan ma'lumotlarni o'qish"""
-    try:
-        with open(CSV_FILE, 'r', newline='', encoding='utf-8') as fayl:
-            oquvchi = csv.reader(fayl)
-            next(oquvchi)  # Sarlavhani o'tkazib yuborish
-            return list(oquvchi)
-    except FileNotFoundError:
-        return []
+async def forward_to_admin_group(content, modul, foydalanuvchi_id, username):
+    """Foydalanuvchi kontentini adminlar guruhiga yuborish"""
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✉️ Javob berish",
+        callback_data=f"javob_{foydalanuvchi_id}_{content.chat.id}"
+    )
+    builder.adjust(1)
+    
+    caption = f"❓ Savol ({modul}) @{username or 'foydalanuvchi'} (ID: {foydalanuvchi_id})"
+    
+    if content.content_type == ContentType.TEXT:
+        sent = await bot.send_message(
+            chat_id=ADMIN_GROUP_ID,
+            text=f"{caption}:\n\n{content.text}",
+            reply_markup=builder.as_markup()
+        )
+    elif content.content_type == ContentType.PHOTO:
+        sent = await bot.send_photo(
+            chat_id=ADMIN_GROUP_ID,
+            photo=content.photo[-1].file_id,
+            caption=f"{caption}:\n\n{content.caption or ''}",
+            reply_markup=builder.as_markup()
+        )
+    elif content.content_type == ContentType.VIDEO:
+        sent = await bot.send_video(
+            chat_id=ADMIN_GROUP_ID,
+            video=content.video.file_id,
+            caption=f"{caption}:\n\n{content.caption or ''}",
+            reply_markup=builder.as_markup()
+        )
+    elif content.content_type == ContentType.VOICE:
+        sent = await bot.send_voice(
+            chat_id=ADMIN_GROUP_ID,
+            voice=content.voice.file_id,
+            caption=caption,
+            reply_markup=builder.as_markup()
+        )
+    else:
+        return None
+        
+    return sent
 
 @router.message(Command("start"))
 async def boshlash(message: types.Message):
@@ -75,40 +108,6 @@ async def boshlash(message: types.Message):
         reply_markup=builder.as_markup(resize_keyboard=True)
     )
 
-@router.message(Command("hisobot"))
-async def hisobot_paroli(message: types.Message):
-    """Hisobot uchun parol so'rash"""
-    foydalanuvchi_id = message.from_user.id
-    foydalanuvchi_holati[foydalanuvchi_id] = {'parol_kutilyapti': True}
-    await message.answer("🔒 Iltimos, hisobotni ko'rish uchun parolni kiriting:")
-
-@router.message(F.text == HISOBOT_PAROLI)
-async def hisobot_yuborish(message: types.Message):
-    """To'g'ri parol kiritilganda hisobotni yuborish"""
-    foydalanuvchi_id = message.from_user.id
-    
-    if foydalanuvchi_id in foydalanuvchi_holati and foydalanuvchi_holati[foydalanuvchi_id].get('parol_kutilyapti'):
-        ma_lumotlar = csvdan_oqish()
-        if not ma_lumotlar:
-            await message.answer("❌ Hisobotda ma'lumot mavjud emas.")
-            return
-            
-        hisobot_matni = "📊 Savollar hisoboti:\n\n"
-        for qator in ma_lumotlar:
-            foydalanuvchi_id, modul, savol, sana_vaqt = qator
-            hisobot_matni += (
-                f"🆔 Foydalanuvchi ID: {foydalanuvchi_id}\n"
-                f"📌 Modul: {modul}\n"
-                f"🕒 Vaqt: {sana_vaqt}\n"
-                f"❓ Savol: {savol}\n"
-                f"{'-'*30}\n"
-            )
-        
-        await message.answer(hisobot_matni)
-        foydalanuvchi_holati.pop(foydalanuvchi_id, None)
-    else:
-        await message.answer("Iltimos, avval /hisobot buyrug'ini yuboring.")
-
 @router.message(F.text.in_(MODULLAR))
 async def modul_tanlash(message: types.Message):
     """Modul tanlashni qayta ishlash"""
@@ -118,9 +117,56 @@ async def modul_tanlash(message: types.Message):
     foydalanuvchi_holati[foydalanuvchi_id] = {'modul': modul}
     
     await message.answer(
-        f"📝 Siz <b>{modul}</b> modulini tanladingiz. Iltimos, savolingizni yozing:",
+        f"📝 Siz <b>{modul}</b> modulini tanladingiz. Iltimos, savolingizni yuboring (matn, rasm, video yoki ovozli xabar):",
         reply_markup=types.ReplyKeyboardRemove()
     )
+
+@router.message(F.content_type.in_({ContentType.TEXT, ContentType.PHOTO, ContentType.VIDEO, ContentType.VOICE}))
+async def foydalanuvchi_savoli(message: types.Message):
+    """Foydalanuvchi savolini qabul qilish"""
+    if message.chat.type != 'private' or message.from_user.is_bot:
+        return
+        
+    foydalanuvchi_id = message.from_user.id
+    foydalanuvchi_holati_ = foydalanuvchi_holati.get(foydalanuvchi_id)
+    
+    if not foydalanuvchi_holati_ or 'modul' not in foydalanuvchi_holati_:
+        await message.answer("Iltimos, avval /start buyrug'i orqali modulni tanlang")
+        return
+        
+    modul = foydalanuvchi_holati_['modul']
+    username = message.from_user.username
+
+    try:
+        # Adminlarga yuborish
+        sent = await forward_to_admin_group(message, modul, foydalanuvchi_id, username)
+        
+        if not sent:
+            await message.answer("❌ Faqat matn, rasm, video yoki ovozli xabarlar qabul qilinadi")
+            return
+
+        # Ma'lumotlarni saqlash
+        content_text = ""
+        if message.content_type == ContentType.TEXT:
+            content_text = message.text
+        elif message.caption:
+            content_text = message.caption
+            
+        kutilayotgan_savollar[sent.message_id] = {
+            "foydalanuvchi_id": foydalanuvchi_id,
+            "foydalanuvchi_chat_id": message.chat.id,
+            "modul": modul,
+            "content_type": message.content_type
+        }
+        
+        csvga_yozish(foydalanuvchi_id, modul, content_text, message.content_type)
+        
+        await message.answer("✅ Savolingiz support jamoasiga yuborildi!")
+        foydalanuvchi_holati.pop(foydalanuvchi_id, None)
+
+    except Exception as e:
+        logger.error(f"Savol yuborishda xato: {e}")
+        await message.answer("❌ Savolingizni yuborishda xato yuz berdi. Iltimos, qayta urinib ko'ring.")
 
 @router.callback_query(F.data.startswith("javob_"))
 async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
@@ -137,7 +183,8 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
         javob_kutayotganlar[admin_id] = {
             "foydalanuvchi_id": foydalanuvchi_id,
             "foydalanuvchi_chat_id": foydalanuvchi_chat_id,
-            "gruppa_xabari_id": callback_query.message.message_id
+            "gruppa_xabari_id": callback_query.message.message_id,
+            "content_type": kutilayotgan_savollar.get(callback_query.message.message_id, {}).get("content_type", "text")
         }
 
         # Admin ismini olish
@@ -154,95 +201,70 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
             .as_markup()
         )
 
-        await bot.send_message(admin_id, "💬 Iltimos, foydalanuvchiga javobingizni shu xabar orqali yuboring:")
+        await bot.send_message(admin_id, "💬 Iltimos, foydalanuvchiga javobingizni shu xabar orqali yuboring (matn, rasm, video yoki ovozli xabar):")
         await callback_query.answer("Endi foydalanuvchiga javob yozishingiz mumkin")
 
     except Exception as e:
         logger.error(f"Javob tugmasida xato: {e}")
         await callback_query.answer("Xato yuz berdi.")
-@router.message()
-async def barcha_xabarlar(message: types.Message):
-    if message.from_user.is_bot or not message.text:
+
+@router.message(F.content_type.in_({ContentType.TEXT, ContentType.PHOTO, ContentType.VIDEO, ContentType.VOICE}))
+async def admin_javobi(message: types.Message):
+    """Admin javobini qayta ishlash"""
+    if message.chat.type != 'private' or message.from_user.is_bot:
         return
-
+        
     admin_id = message.from_user.id
-    kontekst = javob_kutayotganlar.get(admin_id)
-
-    # Admin javobi
-    if kontekst and message.chat.type == 'private':
-        try:
+    context = javob_kutayotganlar.get(admin_id)
+    
+    if not context:
+        return
+        
+    try:
+        # Foydalanuvchiga javobni yuborish
+        if message.content_type == ContentType.TEXT:
             await bot.send_message(
-                chat_id=kontekst["foydalanuvchi_chat_id"],
+                chat_id=context["foydalanuvchi_chat_id"],
                 text=f"📬 Supportdan javob:\n\n{message.text}"
             )
+        elif message.content_type == ContentType.PHOTO:
+            await bot.send_photo(
+                chat_id=context["foydalanuvchi_chat_id"],
+                photo=message.photo[-1].file_id,
+                caption=f"📬 Supportdan javob:\n\n{message.caption or ''}"
+            )
+        elif message.content_type == ContentType.VIDEO:
+            await bot.send_video(
+                chat_id=context["foydalanuvchi_chat_id"],
+                video=message.video.file_id,
+                caption=f"📬 Supportdan javob:\n\n{message.caption or ''}"
+            )
+        elif message.content_type == ContentType.VOICE:
+            await bot.send_voice(
+                chat_id=context["foydalanuvchi_chat_id"],
+                voice=message.voice.file_id,
+                caption="📬 Supportdan javob"
+            )
             
-            # Original savolni tahrirlash
-            try:
-                await bot.edit_message_reply_markup(
-                    chat_id=ADMIN_GROUP_ID,
-                    message_id=kontekst["gruppa_xabari_id"],
-                    reply_markup=None
-                )
-            except Exception as e:
-                logger.error(f"Original xabarni tahrirlashda xato: {e}")
-
-            await message.answer("✅ Javob foydalanuvchiga yuborildi!")
-            
-            # Tozalash
-            javob_kutayotganlar.pop(admin_id, None)
-            kutilayotgan_savollar.pop(kontekst["gruppa_xabari_id"], None)
-            
-        except Exception as e:
-            logger.error(f"Javob yuborishda xato: {e}")
-            await message.answer(f"❌ Javob yuborishda xato: {e}")
-        return
-
-    # Foydalanuvchi savoli
-    if message.chat.type == 'private' and not message.text.startswith("/"):
-        foydalanuvchi_id = message.from_user.id
-        foydalanuvchi_holati_ = foydalanuvchi_holati.get(foydalanuvchi_id)
-        
-        if not foydalanuvchi_holati_ or 'modul' not in foydalanuvchi_holati_:
-            await message.answer("Iltimos, avval /start buyrug'i orqali modulni tanlang")
-            return
-            
-        modul = foydalanuvchi_holati_['modul']
-        savol_matni = message.text
-
+        # Original xabarni tahrirlash
         try:
-            builder = InlineKeyboardBuilder()
-            builder.button(
-                text="✉️ Javob berish",
-                callback_data=f"javob_{foydalanuvchi_id}_{message.chat.id}"
-            )
-            builder.adjust(1)
-
-            yuborilgan = await bot.send_message(
+            await bot.edit_message_reply_markup(
                 chat_id=ADMIN_GROUP_ID,
-                text=f"❓ Savol ({modul}) @{message.from_user.username or 'foydalanuvchi'} (ID: {foydalanuvchi_id}):\n\n{savol_matni}",
-                reply_markup=builder.as_markup()
+                message_id=context["gruppa_xabari_id"],
+                reply_markup=None
             )
-
-            kutilayotgan_savollar[yuborilgan.message_id] = {
-                "foydalanuvchi_id": foydalanuvchi_id,
-                "foydalanuvchi_chat_id": message.chat.id,
-                "modul": modul
-            }
-            
-            csvga_yozish(foydalanuvchi_id, modul, savol_matni)
-            
-            await message.answer("✅ Savolingiz support jamoasiga yuborildi!")
-            
-            foydalanuvchi_holati.pop(foydalanuvchi_id, None)
-
         except Exception as e:
-            logger.error(f"Savol yuborishda xato: {e}")
-            await message.answer("❌ Savolingizni yuborishda xato yuz berdi. Iltimos, qayta urinib ko'ring.")
+            logger.error(f"Original xabarni tahrirlashda xato: {e}")
 
-# Xatolikni qayta ishlash
-@dp.errors()
-async def xatolikni_qayta_ishlash(event, exception):
-    logger.error(f"⚠️ Xato yuz berdi: {exception}")
+        await message.answer("✅ Javob foydalanuvchiga yuborildi!")
+        
+        # Tozalash
+        javob_kutayotganlar.pop(admin_id, None)
+        kutilayotgan_savollar.pop(context["gruppa_xabari_id"], None)
+        
+    except Exception as e:
+        logger.error(f"Javob yuborishda xato: {e}")
+        await message.answer(f"❌ Javob yuborishda xato: {e}")
 
 # Asosiy funksiya
 async def asosiy():
