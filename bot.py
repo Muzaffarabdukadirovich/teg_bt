@@ -11,7 +11,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.filters import Command
 
 # Bot configuration
-BOT_TOKEN = "7383119117:AAFnL4h4B6eF0tzJRLRkWDUVkRf7rdrg1QM"
+BOT_TOKEN = "8017630610:AAHWozLydRjRwLQf7jPBgrvf-FSLYEzQ1B0"
 ADMIN_GROUP_ID = -1002459383963
 CSV_FILE = "savollar.csv"
 HISOBOT_PAROLI = "menga_savol_ber"
