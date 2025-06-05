@@ -8,7 +8,7 @@ from aiogram.enums import ParseMode, ContentType
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
-from aiogram.filters import Command
+from aiogram.filters import Command, IS_REPLY
 
 # Bot configuration
 BOT_TOKEN = "8017630610:AAHWozLydRjRwLQf7jPBgrvf-FSLYEzQ1B0"
@@ -25,7 +25,6 @@ dp = Dispatcher(storage=storage)
 router = Router()
 
 kutilayotgan_savollar = {}
-javob_kutayotganlar = {}
 foydalanuvchi_holati = {}
 MODULLAR = ["HTML", "CSS", "Bootstrap", "WIX", "JavaScript", "Scratch"]
 
@@ -182,9 +181,6 @@ async def foydalanuvchi_savoli(message: types.Message):
     if message.chat.type != 'private' or message.from_user.is_bot:
         return
 
-    if message.from_user.id in javob_kutayotganlar:
-        return
-
     foydalanuvchi_id = message.from_user.id
     foydalanuvchi_holati_ = foydalanuvchi_holati.get(foydalanuvchi_id)
 
@@ -225,12 +221,7 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
             return
 
         # Store the reply context
-        javob_kutayotganlar[admin_id] = {
-            "foydalanuvchi_id": foydalanuvchi_id,
-            "foydalanuvchi_chat_id": foydalanuvchi_chat_id,
-            "original_message_id": callback_query.message.message_id,
-            "original_chat_id": callback_query.message.chat.id
-        }
+        kutilayotgan_savollar[callback_query.message.message_id]["admin_id"] = admin_id
 
         admin = await bot.get_chat(admin_id)
         admin_ismi = admin.first_name
@@ -245,210 +236,70 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
             .as_markup()
         )
 
-        # Ask admin for their response
-        await bot.send_message(
-            admin_id,
-            "💬 Iltimos, foydalanuvchiga javobingizni yuboring (matn, rasm, video, ovozli xabar yoki fayl):"
-        )
-        await callback_query.answer("Endi foydalanuvchiga javob yozishingiz mumkin")
+        await callback_query.answer("Endi ushbu xabarga reply qilib javob yozishingiz mumkin")
 
     except Exception as e:
         logger.error(f"Javob tugmasida xato: {e}")
         await callback_query.answer("Xato yuz berdi.")
 
-@router.message(F.content_type.in_({
-    ContentType.TEXT,
-    ContentType.PHOTO,
-    ContentType.VIDEO,
-    ContentType.VOICE,
-    ContentType.DOCUMENT
-}))
-async def admin_javobi(message: types.Message):
-    if message.chat.type != 'private' or message.from_user.is_bot:
-        return
-
-    admin_id = message.from_user.id
-    context = javob_kutayotganlar.get(admin_id)
-    
-    if not context:
-        return  # Not in reply mode
-
+@router.message(IS_REPLY & F.chat.id == ADMIN_GROUP_ID)
+async def handle_group_reply(message: types.Message):
     try:
-        # Prepare the response to send to user
-        caption_prefix = "📬 Supportdan javob:\n\n"
+        replied_message_id = message.reply_to_message.message_id
+        question_data = kutilayotgan_savollar.get(replied_message_id)
+        
+        if not question_data:
+            return
+
+        caption_prefix = f"📬 Supportdan javob ({question_data.get('modul', '')}):\n\n"
+        original_question = f"\n\n💬 Sizning savolingiz:\n{question_data.get('original_content', '')}"
 
         if message.content_type == ContentType.TEXT:
             await bot.send_message(
-                chat_id=context["foydalanuvchi_chat_id"],
-                text=f"{caption_prefix}{message.text}"
-            )
-        elif message.content_type == ContentType.PHOTO:
-            await bot.send_photo(
-                chat_id=context["foydalanuvchi_chat_id"],
-                photo=message.photo[-1].file_id,
-                caption=f"{caption_prefix}{message.caption or ''}"
-            )
-        elif message.content_type == ContentType.VIDEO:
-            await bot.send_video(
-                chat_id=context["foydalanuvchi_chat_id"],
-                video=message.video.file_id,
-                caption=f"{caption_prefix}{message.caption or ''}"
-            )
-        elif message.content_type == ContentType.VOICE:
-            await bot.send_voice(
-                chat_id=context["foydalanuvchi_chat_id"],
-                voice=message.voice.file_id,
-                caption=caption_prefix.strip()
-            )
-        elif message.content_type == ContentType.DOCUMENT:
-            await bot.send_document(
-                chat_id=context["foydalanuvchi_chat_id"],
-                document=message.document.file_id,
-                caption=caption_prefix.strip()
-            )
-
-        # Notify admin
-        await message.answer("✅ Javob foydalanuvchiga yuborildi!")
-        
-        # Clean up
-        javob_kutayotganlar.pop(admin_id, None)
-
-    except Exception as e:
-        logger.error(f"Javob yuborishda xato: {e}")
-        await message.answer(f"❌ Javob yuborishda xato: {e}")
-
-@router.message(F.content_type.in_({
-    ContentType.TEXT,
-    ContentType.PHOTO,
-    ContentType.VIDEO,
-    ContentType.VOICE,
-    ContentType.DOCUMENT
-}))
-async def admin_javobi(message: types.Message):
-    if message.chat.type != 'private' or message.from_user.is_bot:
-        return
-
-    admin_id = message.from_user.id
-    context = javob_kutayotganlar.get(admin_id)
-    
-    if not context:
-        return  # Not in reply mode
-
-    try:
-        # Prepare the response to send to user
-        caption_prefix = "📬 Supportdan javob:\n\n"
-
-        if message.content_type == ContentType.TEXT:
-            await bot.send_message(
-                chat_id=context["foydalanuvchi_chat_id"],
-                text=f"{caption_prefix}{message.text}"
-            )
-        elif message.content_type == ContentType.PHOTO:
-            await bot.send_photo(
-                chat_id=context["foydalanuvchi_chat_id"],
-                photo=message.photo[-1].file_id,
-                caption=f"{caption_prefix}{message.caption or ''}"
-            )
-        elif message.content_type == ContentType.VIDEO:
-            await bot.send_video(
-                chat_id=context["foydalanuvchi_chat_id"],
-                video=message.video.file_id,
-                caption=f"{caption_prefix}{message.caption or ''}"
-            )
-        elif message.content_type == ContentType.VOICE:
-            await bot.send_voice(
-                chat_id=context["foydalanuvchi_chat_id"],
-                voice=message.voice.file_id,
-                caption=caption_prefix.strip()
-            )
-        elif message.content_type == ContentType.DOCUMENT:
-            await bot.send_document(
-                chat_id=context["foydalanuvchi_chat_id"],
-                document=message.document.file_id,
-                caption=caption_prefix.strip()
-            )
-
-        # Notify admin
-        await message.answer("✅ Javob foydalanuvchiga yuborildi!")
-        
-        # Clean up
-        javob_kutayotganlar.pop(admin_id, None)
-
-    except Exception as e:
-        logger.error(f"Javob yuborishda xato: {e}")
-        await message.answer(f"❌ Javob yuborishda xato: {e}")
-
-@router.message(F.content_type.in_({
-    ContentType.TEXT,
-    ContentType.PHOTO,
-    ContentType.VIDEO,
-    ContentType.VOICE,
-    ContentType.DOCUMENT
-}))
-async def admin_javobi(message: types.Message):
-    if message.chat.type != 'private' or message.from_user.is_bot:
-        return
-
-    admin_id = message.from_user.id
-    context = javob_kutayotganlar.get(admin_id)
-    if not context:
-        return
-
-    try:
-        caption_prefix = f"📬 Supportdan javob ({context.get('modul', '')}):\n\n"
-        
-        # Include the original question in the reply
-        original_question = f"\n\n💬 Sizning savolingiz:\n{context.get('original_question', '')}"
-
-        # Send the reply to the student
-        if message.content_type == ContentType.TEXT:
-            await bot.send_message(
-                chat_id=context["foydalanuvchi_chat_id"],
+                chat_id=question_data["foydalanuvchi_chat_id"],
                 text=f"{caption_prefix}{message.text}{original_question}"
             )
         elif message.content_type == ContentType.PHOTO:
             await bot.send_photo(
-                chat_id=context["foydalanuvchi_chat_id"],
+                chat_id=question_data["foydalanuvchi_chat_id"],
                 photo=message.photo[-1].file_id,
                 caption=f"{caption_prefix}{message.caption or ''}{original_question}"
             )
         elif message.content_type == ContentType.VIDEO:
             await bot.send_video(
-                chat_id=context["foydalanuvchi_chat_id"],
+                chat_id=question_data["foydalanuvchi_chat_id"],
                 video=message.video.file_id,
                 caption=f"{caption_prefix}{message.caption or ''}{original_question}"
             )
         elif message.content_type == ContentType.VOICE:
             await bot.send_voice(
-                chat_id=context["foydalanuvchi_chat_id"],
+                chat_id=question_data["foydalanuvchi_chat_id"],
                 voice=message.voice.file_id,
                 caption=f"{caption_prefix.strip()}{original_question}"
             )
         elif message.content_type == ContentType.DOCUMENT:
             await bot.send_document(
-                chat_id=context["foydalanuvchi_chat_id"],
+                chat_id=question_data["foydalanuvchi_chat_id"],
                 document=message.document.file_id,
                 caption=f"{caption_prefix.strip()}{original_question}"
             )
 
-        # Update the original message in group
+        # Edit original message to remove reply button
         try:
             await bot.edit_message_reply_markup(
-                chat_id=context["original_chat_id"],
-                message_id=context["original_message_id"],
+                chat_id=ADMIN_GROUP_ID,
+                message_id=replied_message_id,
                 reply_markup=None
             )
         except Exception as e:
             logger.error(f"Original xabarni tahrirlashda xato: {e}")
 
-        # Clean up
-        await message.answer("✅ Javob foydalanuvchiga yuborildi!")
-        javob_kutayotganlar.pop(admin_id, None)
-        kutilayotgan_savollar.pop(context["original_message_id"], None)
+        # Notify admin in group
+        await message.reply("✅ Javob foydalanuvchiga yuborildi!")
 
     except Exception as e:
         logger.error(f"Javob yuborishda xato: {e}")
-        await message.answer(f"❌ Javob yuborishda xato: {e}")
+        await message.reply(f"❌ Javob yuborishda xato: {e}")
 
 async def asosiy():
     dp.include_router(router)
