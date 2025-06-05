@@ -330,6 +330,67 @@ async def admin_javobi(message: types.Message):
 
     admin_id = message.from_user.id
     context = javob_kutayotganlar.get(admin_id)
+    
+    if not context:
+        return  # Not in reply mode
+
+    try:
+        # Prepare the response to send to user
+        caption_prefix = "📬 Supportdan javob:\n\n"
+
+        if message.content_type == ContentType.TEXT:
+            await bot.send_message(
+                chat_id=context["foydalanuvchi_chat_id"],
+                text=f"{caption_prefix}{message.text}"
+            )
+        elif message.content_type == ContentType.PHOTO:
+            await bot.send_photo(
+                chat_id=context["foydalanuvchi_chat_id"],
+                photo=message.photo[-1].file_id,
+                caption=f"{caption_prefix}{message.caption or ''}"
+            )
+        elif message.content_type == ContentType.VIDEO:
+            await bot.send_video(
+                chat_id=context["foydalanuvchi_chat_id"],
+                video=message.video.file_id,
+                caption=f"{caption_prefix}{message.caption or ''}"
+            )
+        elif message.content_type == ContentType.VOICE:
+            await bot.send_voice(
+                chat_id=context["foydalanuvchi_chat_id"],
+                voice=message.voice.file_id,
+                caption=caption_prefix.strip()
+            )
+        elif message.content_type == ContentType.DOCUMENT:
+            await bot.send_document(
+                chat_id=context["foydalanuvchi_chat_id"],
+                document=message.document.file_id,
+                caption=caption_prefix.strip()
+            )
+
+        # Notify admin
+        await message.answer("✅ Javob foydalanuvchiga yuborildi!")
+        
+        # Clean up
+        javob_kutayotganlar.pop(admin_id, None)
+
+    except Exception as e:
+        logger.error(f"Javob yuborishda xato: {e}")
+        await message.answer(f"❌ Javob yuborishda xato: {e}")
+
+@router.message(F.content_type.in_({
+    ContentType.TEXT,
+    ContentType.PHOTO,
+    ContentType.VIDEO,
+    ContentType.VOICE,
+    ContentType.DOCUMENT
+}))
+async def admin_javobi(message: types.Message):
+    if message.chat.type != 'private' or message.from_user.is_bot:
+        return
+
+    admin_id = message.from_user.id
+    context = javob_kutayotganlar.get(admin_id)
     if not context:
         return
 
