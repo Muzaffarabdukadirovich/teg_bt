@@ -4,245 +4,277 @@ import csv
 import asyncio
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types, Router, F
-from aiogram.enums import ParseMode
+from aiogram.enums import ParseMode, ContentType
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.filters import Command
 
-# Bot konfiguratsiyasi
+# Bot configuration
 BOT_TOKEN = "8146573794:AAGcGkQbjemK6JSSiEasV3dsljz0MO38kKg"
 ADMIN_GROUP_ID = -1002592730994
 CSV_FILE = "savollar.csv"
-HISOBOT_PAROLI = "menga_savol_ber"  # Hisobot uchun parol
+HISOBOT_PAROLI = "menga_savol_ber"  # Report password
 
-# Log yozish
+# Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Botni ishga tushirish
+# Bot initialization
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 router = Router()
 
-# Xotira saqlash
-kutilayotgan_savollar = {}  # {gruppa_xabari_id: {foydalanuvchi_id, chat_id, modul}}
-javob_kutayotganlar = {}    # {admin_id: {foydalanuvchi_id, chat_id, gruppa_xabari_id}}
-foydalanuvchi_holati = {}   # {foydalanuvchi_id: {'modul': tanlangan_modul}}
+# Memory storage
+kutilayotgan_savollar = {}  # {group_message_id: {user_id, chat_id, module}}
+javob_kutayotganlar = {}    # {admin_id: {user_id, chat_id, group_message_id}}
+foydalanuvchi_holati = {}   # {user_id: {'module': selected_module}}
 
-# Modullar
+# Modules
 MODULLAR = ["HTML", "CSS", "Bootstrap", "WIX", "JavaScript", "Scratch"]
 
-def csvga_yozish(foydalanuvchi_id, modul, savol):
-    """Savollarni CSV fayliga yozish"""
-    sana_vaqt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def csvga_yozish(user_id, module, question, content_type="text"):
+    """Save questions to CSV file"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
-        # Agar fayl yo'q bo'lsa, yaratib olish
+        # Create file if it doesn't exist
         if not os.path.exists(CSV_FILE):
-            with open(CSV_FILE, 'w', newline='', encoding='utf-8') as fayl:
-                yozuvchi = csv.writer(fayl)
-                yozuvchi.writerow(["foydalanuvchi_id", "modul", "savol", "sana_vaqt"])
+            with open(CSV_FILE, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(["user_id", "module", "question", "content_type", "timestamp"])
         
-        # Ma'lumotlarni qo'shish
-        with open(CSV_FILE, 'a', newline='', encoding='utf-8') as fayl:
-            yozuvchi = csv.writer(fayl)
-            yozuvchi.writerow([foydalanuvchi_id, modul, savol, sana_vaqt])
+        # Append data
+        with open(CSV_FILE, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([user_id, module, question, content_type, timestamp])
     except Exception as e:
-        logger.error(f"CSVga yozishda xato: {e}")
+        logger.error(f"CSV write error: {e}")
 
 def csvdan_oqish():
-    """CSV faylidan ma'lumotlarni o'qish"""
+    """Read data from CSV file"""
     try:
-        with open(CSV_FILE, 'r', newline='', encoding='utf-8') as fayl:
-            oquvchi = csv.reader(fayl)
-            next(oquvchi)  # Sarlavhani o'tkazib yuborish
-            return list(oquvchi)
+        with open(CSV_FILE, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            next(reader)  # Skip header
+            return list(reader)
     except FileNotFoundError:
         return []
 
 @router.message(Command("start"))
-async def boshlash(message: types.Message):
-    """Boshlash xabari va modul tanlash tugmalari"""
+async def start_handler(message: types.Message):
+    """Start message with module selection buttons"""
     builder = ReplyKeyboardBuilder()
-    for modul in MODULLAR:
-        builder.add(types.KeyboardButton(text=modul))
-    builder.adjust(2)  # Har qatorda 2 ta tugma
+    for module in MODULLAR:
+        builder.add(types.KeyboardButton(text=module))
+    builder.adjust(2)  # 2 buttons per row
     
     await message.answer(
-        "👋 Qo'llab-quvvatlash botiga xush kelibsiz!\n\n"
-        "Iltimos, yordam kerak bo'lgan modulni tanlang:",
+        "👋 Welcome to the support bot!\n\n"
+        "Please select the module you need help with:",
         reply_markup=builder.as_markup(resize_keyboard=True)
     )
 
 @router.message(Command("hisobot"))
-async def hisobot_paroli(message: types.Message):
-    """Hisobot uchun parol so'rash"""
-    foydalanuvchi_id = message.from_user.id
-    foydalanuvchi_holati[foydalanuvchi_id] = {'parol_kutilyapti': True}
-    await message.answer("🔒 Iltimos, hisobotni ko'rish uchun parolni kiriting:")
+async def report_password_handler(message: types.Message):
+    """Ask for report password"""
+    user_id = message.from_user.id
+    foydalanuvchi_holati[user_id] = {'waiting_for_password': True}
+    await message.answer("🔒 Please enter the password to view the report:")
 
 @router.message(F.text == HISOBOT_PAROLI)
-async def hisobot_yuborish(message: types.Message):
-    """To'g'ri parol kiritilganda hisobotni yuborish"""
-    foydalanuvchi_id = message.from_user.id
+async def send_report_handler(message: types.Message):
+    """Send report when correct password is entered"""
+    user_id = message.from_user.id
     
-    if foydalanuvchi_id in foydalanuvchi_holati and foydalanuvchi_holati[foydalanuvchi_id].get('parol_kutilyapti'):
-        ma_lumotlar = csvdan_oqish()
-        if not ma_lumotlar:
-            await message.answer("❌ Hisobotda ma'lumot mavjud emas.")
+    if user_id in foydalanuvchi_holati and foydalanuvchi_holati[user_id].get('waiting_for_password'):
+        data = csvdan_oqish()
+        if not data:
+            await message.answer("❌ No data available in the report.")
             return
             
-        hisobot_matni = "📊 Savollar hisoboti:\n\n"
-        for qator in ma_lumotlar:
-            foydalanuvchi_id, modul, savol, sana_vaqt = qator
-            hisobot_matni += (
-                f"🆔 Foydalanuvchi ID: {foydalanuvchi_id}\n"
-                f"📌 Modul: {modul}\n"
-                f"🕒 Vaqt: {sana_vaqt}\n"
-                f"❓ Savol: {savol}\n"
+        report_text = "📊 Questions report:\n\n"
+        for row in data:
+            user_id, module, question, content_type, timestamp = row
+            report_text += (
+                f"🆔 User ID: {user_id}\n"
+                f"📌 Module: {module}\n"
+                f"📂 Type: {content_type}\n"
+                f"🕒 Time: {timestamp}\n"
+                f"❓ Question: {question}\n"
                 f"{'-'*30}\n"
             )
         
-        await message.answer(hisobot_matni)
-        foydalanuvchi_holati.pop(foydalanuvchi_id, None)
+        await message.answer(report_text)
+        foydalanuvchi_holati.pop(user_id, None)
     else:
-        await message.answer("Iltimos, avval /hisobot buyrug'ini yuboring.")
+        await message.answer("Please send /hisobot command first.")
 
 @router.message(F.text.in_(MODULLAR))
-async def modul_tanlash(message: types.Message):
-    """Modul tanlashni qayta ishlash"""
-    foydalanuvchi_id = message.from_user.id
-    modul = message.text
+async def module_selection_handler(message: types.Message):
+    """Handle module selection"""
+    user_id = message.from_user.id
+    module = message.text
     
-    foydalanuvchi_holati[foydalanuvchi_id] = {'modul': modul}
+    foydalanuvchi_holati[user_id] = {'module': module}
     
     await message.answer(
-        f"📝 Siz <b>{modul}</b> modulini tanladingiz. Iltimos, savolingizni yozing:",
+        f"📝 You selected <b>{module}</b> module. Please send your question:",
         reply_markup=types.ReplyKeyboardRemove()
     )
 
 @router.callback_query(F.data.startswith("javob_"))
-async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
+async def answer_button_handler(callback_query: types.CallbackQuery):
     try:
         admin_id = callback_query.from_user.id
-        foydalanuvchi_id, foydalanuvchi_chat_id = map(int, callback_query.data.split("_")[1:])
+        user_id, user_chat_id = map(int, callback_query.data.split("_")[1:])
 
-        # Adminlikni tekshirish
-        a_zo = await bot.get_chat_member(callback_query.message.chat.id, admin_id)
-        if a_zo.status not in ['administrator', 'creator']:
-            await callback_query.answer("Faqat adminlar javob berishi mumkin.")
+        # Check admin status
+        chat_member = await bot.get_chat_member(callback_query.message.chat.id, admin_id)
+        if chat_member.status not in ['administrator', 'creator']:
+            await callback_query.answer("Only admins can respond.")
             return
 
         javob_kutayotganlar[admin_id] = {
-            "foydalanuvchi_id": foydalanuvchi_id,
-            "foydalanuvchi_chat_id": foydalanuvchi_chat_id,
-            "gruppa_xabari_id": callback_query.message.message_id
+            "user_id": user_id,
+            "user_chat_id": user_chat_id,
+            "group_message_id": callback_query.message.message_id
         }
 
-        # Original xabarni tahrirlash
+        # Get admin's first name
+        admin_name = callback_query.from_user.first_name
+
+        # Edit original message to show who is responding
         await callback_query.message.edit_reply_markup(
             reply_markup=InlineKeyboardBuilder()
-            .button(text="✓ Javob berildi", callback_data="javob_berildi")
+            .button(text=f"✓ Responding: {admin_name}", callback_data="javob_berildi")
             .adjust(1)
             .as_markup()
         )
 
-        await bot.send_message(admin_id, "💬 Iltimos, foydalanuvchiga javobingizni shu xabar orqali yuboring:")
-        await callback_query.answer("Endi foydalanuvchiga javob yozishingiz mumkin")
+        await bot.send_message(admin_id, "💬 Please send your response to the user (you can send any type of media):")
+        await callback_query.answer(f"You can now respond to the user")
 
     except Exception as e:
-        logger.error(f"Javob tugmasida xato: {e}")
-        await callback_query.answer("Xato yuz berdi.")
+        logger.error(f"Answer button error: {e}")
+        await callback_query.answer("An error occurred.")
 
 @router.message()
-async def barcha_xabarlar(message: types.Message):
-    if message.from_user.is_bot or not message.text:
+async def all_messages_handler(message: types.Message):
+    if message.from_user.is_bot:
         return
 
     admin_id = message.from_user.id
-    kontekst = javob_kutayotganlar.get(admin_id)
+    context = javob_kutayotganlar.get(admin_id)
 
-    # Admin javobi
-    if kontekst and message.chat.type == 'private':
+    # Admin response
+    if context and message.chat.type == 'private':
         try:
-            await bot.send_message(
-                chat_id=kontekst["foydalanuvchi_chat_id"],
-                text=f"📬 Supportdan javob:\n\n{message.text}"
-            )
+            # Forward the response to the user (handles all media types)
+            if message.content_type == ContentType.TEXT:
+                await bot.send_message(
+                    chat_id=context["user_chat_id"],
+                    text=f"📬 Response from support:\n\n{message.text}"
+                )
+            else:
+                # Handle all other media types (photo, video, document, etc.)
+                method = getattr(bot, f"send_{message.content_type}")
+                await method(
+                    chat_id=context["user_chat_id"],
+                    **{message.content_type: getattr(message, message.content_type)[-1].file_id},
+                    caption=f"📬 Response from support:\n\n{message.caption}" if message.caption else None
+                )
             
-            # Original savolni tahrirlash
+            # Edit original question message
             try:
                 await bot.edit_message_reply_markup(
                     chat_id=ADMIN_GROUP_ID,
-                    message_id=kontekst["gruppa_xabari_id"],
+                    message_id=context["group_message_id"],
                     reply_markup=None
                 )
             except Exception as e:
-                logger.error(f"Original xabarni tahrirlashda xato: {e}")
+                logger.error(f"Error editing original message: {e}")
 
-            await message.answer("✅ Javob foydalanuvchiga yuborildi!")
+            await message.answer("✅ Response sent to the user!")
             
-            # Tozalash
+            # Clean up
             javob_kutayotganlar.pop(admin_id, None)
-            kutilayotgan_savollar.pop(kontekst["gruppa_xabari_id"], None)
+            kutilayotgan_savollar.pop(context["group_message_id"], None)
             
         except Exception as e:
-            logger.error(f"Javob yuborishda xato: {e}")
-            await message.answer(f"❌ Javob yuborishda xato: {e}")
+            logger.error(f"Error sending response: {e}")
+            await message.answer(f"❌ Error sending response: {e}")
         return
 
-    # Foydalanuvchi savoli
+    # User question (handles all content types)
     if message.chat.type == 'private' and not message.text.startswith("/"):
-        foydalanuvchi_id = message.from_user.id
-        foydalanuvchi_holati_ = foydalanuvchi_holati.get(foydalanuvchi_id)
+        user_id = message.from_user.id
+        user_state = foydalanuvchi_holati.get(user_id)
         
-        if not foydalanuvchi_holati_ or 'modul' not in foydalanuvchi_holati_:
-            await message.answer("Iltimos, avval /start buyrug'i orqali modulni tanlang")
+        if not user_state or 'module' not in user_state:
+            await message.answer("Please select a module first using /start")
             return
             
-        modul = foydalanuvchi_holati_['modul']
-        savol_matni = message.text
+        module = user_state['module']
 
         try:
             builder = InlineKeyboardBuilder()
             builder.button(
-                text="✉️ Javob berish",
-                callback_data=f"javob_{foydalanuvchi_id}_{message.chat.id}"
+                text="✉️ Respond",
+                callback_data=f"javob_{user_id}_{message.chat.id}"
             )
             builder.adjust(1)
 
-            yuborilgan = await bot.send_message(
+            # Prepare question text based on content type
+            if message.content_type == ContentType.TEXT:
+                question_text = message.text
+                content_type = "text"
+            else:
+                question_text = message.caption if message.caption else f"[{message.content_type}]"
+                content_type = message.content_type
+
+            # Send message to admin group
+            sent_message = await bot.send_message(
                 chat_id=ADMIN_GROUP_ID,
-                text=f"❓ Savol ({modul}) @{message.from_user.username or 'foydalanuvchi'} (ID: {foydalanuvchi_id}):\n\n{savol_matni}",
+                text=f"❓ Question ({module}) @{message.from_user.username or 'user'} (ID: {user_id}):\n\n{question_text}",
                 reply_markup=builder.as_markup()
             )
 
-            kutilayotgan_savollar[yuborilgan.message_id] = {
-                "foydalanuvchi_id": foydalanuvchi_id,
-                "foydalanuvchi_chat_id": message.chat.id,
-                "modul": modul
+            # If it's a media message, forward the media to the group
+            if message.content_type != ContentType.TEXT:
+                method = getattr(bot, f"send_{message.content_type}")
+                await method(
+                    chat_id=ADMIN_GROUP_ID,
+                    **{message.content_type: getattr(message, message.content_type)[-1].file_id},
+                    reply_to_message_id=sent_message.message_id,
+                    caption=None  # We already included caption in the text message
+                )
+
+            kutilayotgan_savollar[sent_message.message_id] = {
+                "user_id": user_id,
+                "user_chat_id": message.chat.id,
+                "module": module
             }
             
-            csvga_yozish(foydalanuvchi_id, modul, savol_matni)
+            csvga_yozish(user_id, module, question_text, content_type)
             
-            await message.answer("✅ Savolingiz support jamoasiga yuborildi!")
+            await message.answer("✅ Your question has been sent to the support team!")
             
-            foydalanuvchi_holati.pop(foydalanuvchi_id, None)
+            foydalanuvchi_holati.pop(user_id, None)
 
         except Exception as e:
-            logger.error(f"Savol yuborishda xato: {e}")
-            await message.answer("❌ Savolingizni yuborishda xato yuz berdi. Iltimos, qayta urinib ko'ring.")
+            logger.error(f"Error sending question: {e}")
+            await message.answer("❌ Error sending your question. Please try again.")
 
-# Xatolikni qayta ishlash
+# Error handler
 @dp.errors()
-async def xatolikni_qayta_ishlash(event, exception):
-    logger.error(f"⚠️ Xato yuz berdi: {exception}")
+async def error_handler(event, exception):
+    logger.error(f"⚠️ Error occurred: {exception}")
 
-# Asosiy funksiya
-async def asosiy():
+# Main function
+async def main():
     dp.include_router(router)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(asosiy())
+    asyncio.run(main())
