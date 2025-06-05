@@ -92,9 +92,9 @@ async def admin_group_response_handler(message: types.Message):
         if message.content_type == ContentType.TEXT:
             await bot.send_message(
                 chat_id=user_chat_id,
-                text=f"📬 Admin javobi:
+                text=f"""📬 Admin javobi:
 
-{message.text}"
+{message.text}"""
             )
         elif message.content_type == ContentType.PHOTO:
             await bot.send_photo(
