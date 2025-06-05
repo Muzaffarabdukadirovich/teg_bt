@@ -10,7 +10,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.filters import Command
 
-# Bot konfiguratsiyasi
+# Bot configuration
 BOT_TOKEN = "7383119117:AAFnL4h4B6eF0tzJRLRkWDUVkRf7rdrg1QM"
 ADMIN_GROUP_ID = -1002459383963
 CSV_FILE = "savollar.csv"
@@ -103,6 +103,15 @@ async def forward_to_admin_group(content, modul, foydalanuvchi_id, username):
     else:
         return None
 
+    # Store the question information
+    kutilayotgan_savollar[sent.message_id] = {
+        "foydalanuvchi_id": foydalanuvchi_id,
+        "foydalanuvchi_chat_id": content.chat.id,
+        "modul": modul,
+        "content_type": content.content_type,
+        "original_content": content_text
+    }
+
     return sent
 
 @router.message(Command("start"))
@@ -193,14 +202,6 @@ async def foydalanuvchi_savoli(message: types.Message):
             return
 
         content_text = message.text if message.content_type == ContentType.TEXT else message.caption or ""
-
-        kutilayotgan_savollar[sent.message_id] = {
-            "foydalanuvchi_id": foydalanuvchi_id,
-            "foydalanuvchi_chat_id": message.chat.id,
-            "modul": modul,
-            "content_type": message.content_type
-        }
-
         csvga_yozish(foydalanuvchi_id, modul, content_text, message.content_type)
         await message.answer("✅ Savolingiz support jamoasiga yuborildi!")
         foydalanuvchi_holati.pop(foydalanuvchi_id, None)
@@ -213,20 +214,27 @@ async def foydalanuvchi_savoli(message: types.Message):
 async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
     try:
         admin_id = callback_query.from_user.id
-        foydalanuvchi_id, foydalanuvchi_chat_id = map(int, callback_query.data.split("_")[1:])
-
+        parts = callback_query.data.split("_")
+        foydalanuvchi_id = int(parts[1])
+        foydalanuvchi_chat_id = int(parts[2])
+        
+        # Check if admin
         a_zo = await bot.get_chat_member(callback_query.message.chat.id, admin_id)
         if a_zo.status not in ['administrator', 'creator']:
             await callback_query.answer("Faqat adminlar javob berishi mumkin.")
             return
 
-        savol_info = kutilayotgan_savollar.get(callback_query.message.message_id, {})
-
+        # Get the original question info
+        original_question = kutilayotgan_savollar.get(callback_query.message.message_id, {})
+        
+        # Store all necessary information
         javob_kutayotganlar[admin_id] = {
             "foydalanuvchi_id": foydalanuvchi_id,
             "foydalanuvchi_chat_id": foydalanuvchi_chat_id,
-            "gruppa_xabari_id": callback_query.message.message_id,
-            "content_type": savol_info.get("content_type", "text")
+            "original_message_id": callback_query.message.message_id,
+            "original_chat_id": callback_query.message.chat.id,
+            "modul": original_question.get("modul", ""),
+            "original_question": original_question.get("original_content", "")
         }
 
         admin = await bot.get_chat(admin_id)
@@ -234,6 +242,7 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
         if admin.last_name:
             admin_ismi += " " + admin.last_name
 
+        # Update the button to show who is answering
         await callback_query.message.edit_reply_markup(
             reply_markup=InlineKeyboardBuilder()
             .button(text=f"✓ Javob berildi || {admin_ismi}", callback_data="javob_berildi")
@@ -241,11 +250,14 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
             .as_markup()
         )
 
+        # Send the original question to admin for context
         await bot.send_message(
             admin_id,
-            "💬 Iltimos, foydalanuvchiga javobingizni shu xabar orqali yuboring "
-            "(matn, rasm, video, ovozli xabar yoki fayl):"
+            f"💬 Foydalanuvchining savoli ({original_question.get('modul', '')}):\n\n"
+            f"{original_question.get('original_content', '')}\n\n"
+            "Iltimos, javobingizni yuboring (matn, rasm, video, ovozli xabar yoki fayl):"
         )
+        
         await callback_query.answer("Endi foydalanuvchiga javob yozishingiz mumkin")
 
     except Exception as e:
@@ -269,27 +281,56 @@ async def admin_javobi(message: types.Message):
         return
 
     try:
-        caption_prefix = "📬 Supportdan javob:\n\n"
+        caption_prefix = f"📬 Supportdan javob ({context.get('modul', '')}):\n\n"
+        
+        # Include the original question in the reply
+        original_question = f"\n\n💬 Sizning savolingiz:\n{context.get('original_question', '')}"
 
+        # Send the reply to the student
         if message.content_type == ContentType.TEXT:
-            await bot.send_message(chat_id=context["foydalanuvchi_chat_id"], text=f"{caption_prefix}{message.text}")
+            await bot.send_message(
+                chat_id=context["foydalanuvchi_chat_id"],
+                text=f"{caption_prefix}{message.text}{original_question}"
+            )
         elif message.content_type == ContentType.PHOTO:
-            await bot.send_photo(chat_id=context["foydalanuvchi_chat_id"], photo=message.photo[-1].file_id, caption=f"{caption_prefix}{message.caption or ''}")
+            await bot.send_photo(
+                chat_id=context["foydalanuvchi_chat_id"],
+                photo=message.photo[-1].file_id,
+                caption=f"{caption_prefix}{message.caption or ''}{original_question}"
+            )
         elif message.content_type == ContentType.VIDEO:
-            await bot.send_video(chat_id=context["foydalanuvchi_chat_id"], video=message.video.file_id, caption=f"{caption_prefix}{message.caption or ''}")
+            await bot.send_video(
+                chat_id=context["foydalanuvchi_chat_id"],
+                video=message.video.file_id,
+                caption=f"{caption_prefix}{message.caption or ''}{original_question}"
+            )
         elif message.content_type == ContentType.VOICE:
-            await bot.send_voice(chat_id=context["foydalanuvchi_chat_id"], voice=message.voice.file_id, caption=caption_prefix.strip())
+            await bot.send_voice(
+                chat_id=context["foydalanuvchi_chat_id"],
+                voice=message.voice.file_id,
+                caption=f"{caption_prefix.strip()}{original_question}"
+            )
         elif message.content_type == ContentType.DOCUMENT:
-            await bot.send_document(chat_id=context["foydalanuvchi_chat_id"], document=message.document.file_id, caption=caption_prefix.strip())
+            await bot.send_document(
+                chat_id=context["foydalanuvchi_chat_id"],
+                document=message.document.file_id,
+                caption=f"{caption_prefix.strip()}{original_question}"
+            )
 
+        # Update the original message in group
         try:
-            await bot.edit_message_reply_markup(chat_id=ADMIN_GROUP_ID, message_id=context["gruppa_xabari_id"], reply_markup=None)
+            await bot.edit_message_reply_markup(
+                chat_id=context["original_chat_id"],
+                message_id=context["original_message_id"],
+                reply_markup=None
+            )
         except Exception as e:
             logger.error(f"Original xabarni tahrirlashda xato: {e}")
 
+        # Clean up
         await message.answer("✅ Javob foydalanuvchiga yuborildi!")
         javob_kutayotganlar.pop(admin_id, None)
-        kutilayotgan_savollar.pop(context["gruppa_xabari_id"], None)
+        kutilayotgan_savollar.pop(context["original_message_id"], None)
 
     except Exception as e:
         logger.error(f"Javob yuborishda xato: {e}")
