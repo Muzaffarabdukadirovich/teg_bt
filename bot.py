@@ -224,17 +224,12 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
             await callback_query.answer("Faqat adminlar javob berishi mumkin.")
             return
 
-        # Get the original question info
-        original_question = kutilayotgan_savollar.get(callback_query.message.message_id, {})
-        
-        # Store all necessary information
+        # Store the reply context
         javob_kutayotganlar[admin_id] = {
             "foydalanuvchi_id": foydalanuvchi_id,
             "foydalanuvchi_chat_id": foydalanuvchi_chat_id,
             "original_message_id": callback_query.message.message_id,
-            "original_chat_id": callback_query.message.chat.id,
-            "modul": original_question.get("modul", ""),
-            "original_question": original_question.get("original_content", "")
+            "original_chat_id": callback_query.message.chat.id
         }
 
         admin = await bot.get_chat(admin_id)
@@ -250,19 +245,77 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
             .as_markup()
         )
 
-        # Send the original question to admin for context
+        # Ask admin for their response
         await bot.send_message(
             admin_id,
-            f"💬 Foydalanuvchining savoli ({original_question.get('modul', '')}):\n\n"
-            f"{original_question.get('original_content', '')}\n\n"
-            "Iltimos, javobingizni yuboring (matn, rasm, video, ovozli xabar yoki fayl):"
+            "💬 Iltimos, foydalanuvchiga javobingizni yuboring (matn, rasm, video, ovozli xabar yoki fayl):"
         )
-        
         await callback_query.answer("Endi foydalanuvchiga javob yozishingiz mumkin")
 
     except Exception as e:
         logger.error(f"Javob tugmasida xato: {e}")
         await callback_query.answer("Xato yuz berdi.")
+
+@router.message(F.content_type.in_({
+    ContentType.TEXT,
+    ContentType.PHOTO,
+    ContentType.VIDEO,
+    ContentType.VOICE,
+    ContentType.DOCUMENT
+}))
+async def admin_javobi(message: types.Message):
+    if message.chat.type != 'private' or message.from_user.is_bot:
+        return
+
+    admin_id = message.from_user.id
+    context = javob_kutayotganlar.get(admin_id)
+    
+    if not context:
+        return  # Not in reply mode
+
+    try:
+        # Prepare the response to send to user
+        caption_prefix = "📬 Supportdan javob:\n\n"
+
+        if message.content_type == ContentType.TEXT:
+            await bot.send_message(
+                chat_id=context["foydalanuvchi_chat_id"],
+                text=f"{caption_prefix}{message.text}"
+            )
+        elif message.content_type == ContentType.PHOTO:
+            await bot.send_photo(
+                chat_id=context["foydalanuvchi_chat_id"],
+                photo=message.photo[-1].file_id,
+                caption=f"{caption_prefix}{message.caption or ''}"
+            )
+        elif message.content_type == ContentType.VIDEO:
+            await bot.send_video(
+                chat_id=context["foydalanuvchi_chat_id"],
+                video=message.video.file_id,
+                caption=f"{caption_prefix}{message.caption or ''}"
+            )
+        elif message.content_type == ContentType.VOICE:
+            await bot.send_voice(
+                chat_id=context["foydalanuvchi_chat_id"],
+                voice=message.voice.file_id,
+                caption=caption_prefix.strip()
+            )
+        elif message.content_type == ContentType.DOCUMENT:
+            await bot.send_document(
+                chat_id=context["foydalanuvchi_chat_id"],
+                document=message.document.file_id,
+                caption=caption_prefix.strip()
+            )
+
+        # Notify admin
+        await message.answer("✅ Javob foydalanuvchiga yuborildi!")
+        
+        # Clean up
+        javob_kutayotganlar.pop(admin_id, None)
+
+    except Exception as e:
+        logger.error(f"Javob yuborishda xato: {e}")
+        await message.answer(f"❌ Javob yuborishda xato: {e}")
 
 @router.message(F.content_type.in_({
     ContentType.TEXT,
