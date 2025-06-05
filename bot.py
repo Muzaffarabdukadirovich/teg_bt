@@ -8,7 +8,7 @@ from aiogram.enums import ParseMode, ContentType
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
-from aiogram.filters import Command, IS_REPLY
+from aiogram.filters import Command
 
 # Bot configuration
 BOT_TOKEN = "8017630610:AAHWozLydRjRwLQf7jPBgrvf-FSLYEzQ1B0"
@@ -211,6 +211,12 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
     try:
         admin_id = callback_query.from_user.id
         parts = callback_query.data.split("_")
+        
+        # Check if this is the "javob_berildi" button
+        if parts[1] == "berildi":
+            await callback_query.answer("Bu savolga allaqachon javob berilgan")
+            return
+            
         foydalanuvchi_id = int(parts[1])
         foydalanuvchi_chat_id = int(parts[2])
         
@@ -242,7 +248,7 @@ async def javob_berish_tugmasi(callback_query: types.CallbackQuery):
         logger.error(f"Javob tugmasida xato: {e}")
         await callback_query.answer("Xato yuz berdi.")
 
-@router.message(IS_REPLY & F.chat.id == ADMIN_GROUP_ID)
+@router.message(F.chat.id == ADMIN_GROUP_ID, F.reply_to_message)
 async def handle_group_reply(message: types.Message):
     try:
         replied_message_id = message.reply_to_message.message_id
