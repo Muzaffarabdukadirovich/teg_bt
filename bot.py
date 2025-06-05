@@ -70,8 +70,8 @@ async def start_handler(message: types.Message):
     builder.adjust(2)  # 2 buttons per row
     
     await message.answer(
-        "👋 Welcome to the support bot!\n\n"
-        "Please select the module you need help with:",
+        "👋 Junior Aloqa botga xush kelibsiz !"
+        "O'zingizga kerakli modulni tanlang:",
         reply_markup=builder.as_markup(resize_keyboard=True)
     )
 
@@ -80,7 +80,7 @@ async def report_password_handler(message: types.Message):
     """Ask for report password"""
     user_id = message.from_user.id
     foydalanuvchi_holati[user_id] = {'waiting_for_password': True}
-    await message.answer("🔒 Please enter the password to view the report:")
+    await message.answer("🔒 Hisobotni korish uchun parolni kiriting:")
 
 @router.message(F.text == HISOBOT_PAROLI)
 async def send_report_handler(message: types.Message):
@@ -90,7 +90,7 @@ async def send_report_handler(message: types.Message):
     if user_id in foydalanuvchi_holati and foydalanuvchi_holati[user_id].get('waiting_for_password'):
         data = csvdan_oqish()
         if not data:
-            await message.answer("❌ No data available in the report.")
+            await message.answer("❌ Hisobotda malumot yoq.")
             return
             
         report_text = "📊 Questions report:\n\n"
@@ -108,7 +108,7 @@ async def send_report_handler(message: types.Message):
         await message.answer(report_text)
         foydalanuvchi_holati.pop(user_id, None)
     else:
-        await message.answer("Please send /hisobot command first.")
+        await message.answer("Iltimos /hisobot ni yuboring.")
 
 @router.message(F.text.in_(MODULLAR))
 async def module_selection_handler(message: types.Message):
@@ -119,7 +119,7 @@ async def module_selection_handler(message: types.Message):
     foydalanuvchi_holati[user_id] = {'module': module}
     
     await message.answer(
-        f"📝 You selected <b>{module}</b> module. Please send your question:",
+        f"📝 Siz <b>{module}</b> modulini tanladingiz. Marhamat, Savolingizni yuboring:",
         reply_markup=types.ReplyKeyboardRemove()
     )
 
@@ -152,12 +152,12 @@ async def answer_button_handler(callback_query: types.CallbackQuery):
             .as_markup()
         )
 
-        await bot.send_message(admin_id, "💬 Please send your response to the user (you can send any type of media):")
-        await callback_query.answer(f"You can now respond to the user")
+        await bot.send_message(admin_id, "💬 Siz tanlagan savolingizga javob bering ✅):")
+        await callback_query.answer(f"Hozir foydalanuvchiga xabar yubora olasiz")
 
     except Exception as e:
         logger.error(f"Answer button error: {e}")
-        await callback_query.answer("An error occurred.")
+        await callback_query.answer("Xatolik yuzaga keldi.")
 
 @router.message()
 async def all_messages_handler(message: types.Message):
@@ -174,7 +174,7 @@ async def all_messages_handler(message: types.Message):
             if message.content_type == ContentType.TEXT:
                 await bot.send_message(
                     chat_id=context["user_chat_id"],
-                    text=f"📬 Response from support:\n\n{message.text}"
+                    text=f"📬 Junior jamoasidan kelgan javob:\n\n{message.text}"
                 )
             else:
                 # Handle all other media types (photo, video, document, etc.)
@@ -182,7 +182,7 @@ async def all_messages_handler(message: types.Message):
                 await method(
                     chat_id=context["user_chat_id"],
                     **{message.content_type: getattr(message, message.content_type)[-1].file_id},
-                    caption=f"📬 Response from support:\n\n{message.caption}" if message.caption else None
+                    caption=f"📬 Junior jamoasidan kelgan javob:\n\n{message.caption}" if message.caption else None
                 )
             
             # Edit original question message
@@ -193,9 +193,9 @@ async def all_messages_handler(message: types.Message):
                     reply_markup=None
                 )
             except Exception as e:
-                logger.error(f"Error editing original message: {e}")
+                logger.error(f"Xabarni tahrirlashda xato: {e}")
 
-            await message.answer("✅ Response sent to the user!")
+            await message.answer("✅ Xabar yuborildi!")
             
             # Clean up
             javob_kutayotganlar.pop(admin_id, None)
@@ -203,7 +203,7 @@ async def all_messages_handler(message: types.Message):
             
         except Exception as e:
             logger.error(f"Error sending response: {e}")
-            await message.answer(f"❌ Error sending response: {e}")
+            await message.answer(f"❌ Xabarni yuborish xatosi: {e}")
         return
 
     # User question (handles all content types)
@@ -212,7 +212,7 @@ async def all_messages_handler(message: types.Message):
         user_state = foydalanuvchi_holati.get(user_id)
         
         if not user_state or 'module' not in user_state:
-            await message.answer("Please select a module first using /start")
+            await message.answer("Iltimos avval /start buyrugini yuboring")
             return
             
         module = user_state['module']
@@ -258,13 +258,13 @@ async def all_messages_handler(message: types.Message):
             
             csvga_yozish(user_id, module, question_text, content_type)
             
-            await message.answer("✅ Your question has been sent to the support team!")
+            await message.answer("✅ Savolingiz Junior jamoasiga yuborildi!")
             
             foydalanuvchi_holati.pop(user_id, None)
 
         except Exception as e:
             logger.error(f"Error sending question: {e}")
-            await message.answer("❌ Error sending your question. Please try again.")
+            await message.answer("❌ Savolingizni yuborishda xatolik yuzaga keldi.")
 
 # Error handler
 @dp.errors()
