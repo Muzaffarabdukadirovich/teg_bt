@@ -97,7 +97,7 @@ async def start_command(message: types.Message):
     builder.adjust(2)
     
     await message.answer(
-        "👋 Welcome to Support Bot!\nPlease select a module:",
+        "👋Modulni tanlang:",
         reply_markup=builder.as_markup(resize_keyboard=True)
     )
 
@@ -110,7 +110,7 @@ async def handle_module_selection(message: types.Message):
         'awaiting_question': True
     }
     await message.answer(
-        f"📝 You selected <b>{message.text}</b>. Send your question:",
+        f"📝 Siz tanladingiz <b>{message.text}</b>. Savolingizni yuboring (matn shaklida):",
         reply_markup=types.ReplyKeyboardRemove()
     )
 
@@ -121,7 +121,7 @@ async def handle_user_question(message: types.Message):
     user_state = user_states.get(user_id, {})
     
     if not user_state.get('awaiting_question'):
-        await message.answer("Please select a module first using /start")
+        await message.answer("Agarda savol bermoqchi bo'lsangiz,  /start tugmasini bosing.")
         return
     
     module = user_state['module']
@@ -162,12 +162,12 @@ async def handle_user_question(message: types.Message):
         # Log to CSV
         await write_to_csv(user_id, module, question_text, message.content_type)
         
-        await message.answer("✅ Your question was sent to support!")
+        await message.answer("✅Sizning savolingiz yuborildi!")
         user_states.pop(user_id, None)
         
     except Exception as e:
         logger.error(f"Question handling error: {e}")
-        await message.answer("❌ Failed to send your question. Please try again.")
+        await message.answer("❌ Savolingizni yuborishda xatolik bor, matn shaklida yuboring.")
 
 @router.callback_query(F.data.startswith("respond_"))
 async def handle_response_request(callback: types.CallbackQuery):
@@ -201,7 +201,7 @@ async def handle_response_request(callback: types.CallbackQuery):
         await callback.answer()
         await bot.send_message(
             admin_id,
-            "💬 Send your response (text/media/voice):"
+            "💬 Ushbu foydalanuvchiga javobingizni yuboring:"
         )
         
     except Exception as e:
@@ -235,7 +235,7 @@ async def handle_admin_response(message: types.Message):
                 caption=caption if caption.strip() else None
             )
         else:
-            await message.answer("❌ Unsupported response format")
+            await message.answer("❌ Noto'g'ri tipdagi fayl yuborilmoqda ")
             return
 
         # Clean up
