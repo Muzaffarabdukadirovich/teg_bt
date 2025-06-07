@@ -9,9 +9,9 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.filters import Command
-     
+
 # Bot configuration
-BOT_TOKEN = "7956820680:AAGZb3wQ4uGKn7p_z6BQaFl-eIBD1q9pO9U"
+BOT_TOKEN = "8146573794:AAGcGkQbjemK6JSSiEasV3dsljz0MO38kKg"
 ADMIN_GROUP_ID = -1002592730994
 CSV_FILE = "savollar.csv"
 HISOBOT_PAROLI = "menga_savol_ber"  # Report password
@@ -70,8 +70,8 @@ async def start_handler(message: types.Message):
     builder.adjust(2)  # 2 buttons per row
     
     await message.answer(
-        "👋 Junior Aloqa botga xush kelibsiz !"
-        "O'zingizga kerakli modulni tanlang:",
+        "👋 Welcome to the support bot!\n\n"
+        "Please select the module you need help with:",
         reply_markup=builder.as_markup(resize_keyboard=True)
     )
 
@@ -80,7 +80,7 @@ async def report_password_handler(message: types.Message):
     """Ask for report password"""
     user_id = message.from_user.id
     foydalanuvchi_holati[user_id] = {'waiting_for_password': True}
-    await message.answer("🔒 Hisobotni korish uchun parolni kiriting:")
+    await message.answer("🔒 Please enter the password to view the report:")
 
 @router.message(F.text == HISOBOT_PAROLI)
 async def send_report_handler(message: types.Message):
@@ -90,7 +90,7 @@ async def send_report_handler(message: types.Message):
     if user_id in foydalanuvchi_holati and foydalanuvchi_holati[user_id].get('waiting_for_password'):
         data = csvdan_oqish()
         if not data:
-            await message.answer("❌ Hisobotda malumot yoq.")
+            await message.answer("❌ No data available in the report.")
             return
             
         report_text = "📊 Questions report:\n\n"
@@ -108,7 +108,7 @@ async def send_report_handler(message: types.Message):
         await message.answer(report_text)
         foydalanuvchi_holati.pop(user_id, None)
     else:
-        await message.answer("Iltimos /hisobot ni yuboring.")
+        await message.answer("Please send /hisobot command first.")
 
 @router.message(F.text.in_(MODULLAR))
 async def module_selection_handler(message: types.Message):
@@ -119,7 +119,7 @@ async def module_selection_handler(message: types.Message):
     foydalanuvchi_holati[user_id] = {'module': module}
     
     await message.answer(
-        f"📝 Siz <b>{module}</b> modulini tanladingiz. Marhamat, Savolingizni yuboring:",
+        f"📝 You selected <b>{module}</b> module. Please send your question:",
         reply_markup=types.ReplyKeyboardRemove()
     )
 
@@ -152,12 +152,12 @@ async def answer_button_handler(callback_query: types.CallbackQuery):
             .as_markup()
         )
 
-        await bot.send_message(admin_id, "💬 Siz tanlagan savolingizga javob bering ✅):")
-        await callback_query.answer(f"Hozir foydalanuvchiga xabar yubora olasiz")
+        await bot.send_message(admin_id, "💬 Please send your response to the user (you can send any type of media):")
+        await callback_query.answer(f"You can now respond to the user")
 
     except Exception as e:
         logger.error(f"Answer button error: {e}")
-        await callback_query.answer("Xatolik yuzaga keldi.")
+        await callback_query.answer("An error occurred.")
 
 @router.message()
 async def all_messages_handler(message: types.Message):
@@ -174,7 +174,7 @@ async def all_messages_handler(message: types.Message):
             if message.content_type == ContentType.TEXT:
                 await bot.send_message(
                     chat_id=context["user_chat_id"],
-                    text=f"📬 Junior jamoasidan kelgan javob:\n\n{message.text}"
+                    text=f"📬 Response from support:\n\n{message.text}"
                 )
             else:
                 # Handle all other media types (photo, video, document, etc.)
@@ -182,7 +182,7 @@ async def all_messages_handler(message: types.Message):
                 await method(
                     chat_id=context["user_chat_id"],
                     **{message.content_type: getattr(message, message.content_type)[-1].file_id},
-                    caption=f"📬 Junior jamoasidan kelgan javob:\n\n{message.caption}" if message.caption else None
+                    caption=f"📬 Response from support:\n\n{message.caption}" if message.caption else None
                 )
             
             # Edit original question message
@@ -193,9 +193,9 @@ async def all_messages_handler(message: types.Message):
                     reply_markup=None
                 )
             except Exception as e:
-                logger.error(f"Xabarni tahrirlashda xato: {e}")
+                logger.error(f"Error editing original message: {e}")
 
-            await message.answer("✅ Xabar yuborildi!")
+            await message.answer("✅ Response sent to the user!")
             
             # Clean up
             javob_kutayotganlar.pop(admin_id, None)
@@ -203,7 +203,7 @@ async def all_messages_handler(message: types.Message):
             
         except Exception as e:
             logger.error(f"Error sending response: {e}")
-            await message.answer(f"❌ Xabarni yuborish xatosi: {e}")
+            await message.answer(f"❌ Error sending response: {e}")
         return
 
     # User question (handles all content types)
@@ -212,7 +212,7 @@ async def all_messages_handler(message: types.Message):
         user_state = foydalanuvchi_holati.get(user_id)
         
         if not user_state or 'module' not in user_state:
-            await message.answer("Iltimos avval /start buyrugini yuboring")
+            await message.answer("Please select a module first using /start")
             return
             
         module = user_state['module']
@@ -258,13 +258,13 @@ async def all_messages_handler(message: types.Message):
             
             csvga_yozish(user_id, module, question_text, content_type)
             
-            await message.answer("✅ Savolingiz Junior jamoasiga yuborildi!")
+            await message.answer("✅ Your question has been sent to the support team!")
             
             foydalanuvchi_holati.pop(user_id, None)
 
         except Exception as e:
             logger.error(f"Error sending question: {e}")
-            await message.answer("❌ Savolingizni yuborishda xatolik yuzaga keldi.")
+            await message.answer("❌ Error sending your question. Please try again.")
 
 # Error handler
 @dp.errors()
