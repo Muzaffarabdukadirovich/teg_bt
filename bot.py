@@ -217,7 +217,7 @@ async def handle_admin_response(message: types.Message):
         return
 
     try:
-        response_header = "📨 Support response:\n\n"
+        response_header = "📨 O'qituvchidan kelgan javob:\n\n"
         
         if message.content_type == ContentType.TEXT:
             await bot.send_message(
