@@ -33,7 +33,7 @@ router = Router()
 # Memory storage
 pending_questions = {}  # {group_message_id: {user_id, chat_id, module}}
 awaiting_responses = {}  # {admin_id: {user_id, chat_id, group_message_id}}
-user_states = {}  # {user_id: {'module': selected_module}}
+user_states = {}        # {user_id: {'module': selected_module}}
 
 # Modules
 MODULES = ["HTML", "CSS", "Bootstrap", "WIX", "JavaScript", "Scratch"]
@@ -49,7 +49,6 @@ SUPPORTED_MEDIA = {
     ContentType.STICKER: "sticker"
 }
 
-
 async def write_to_csv(user_id: int, module: str, question: str, content_type: str = "text"):
     """Save questions to CSV file"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -64,32 +63,30 @@ async def write_to_csv(user_id: int, module: str, question: str, content_type: s
         logger.error(f"CSV write error: {e}")
         raise
 
-
 async def forward_to_admin(media_message: types.Message, context_text: str):
     """Forward media with context to admin group"""
     try:
         content_type = media_message.content_type
         media_method = getattr(bot, f"send_{SUPPORTED_MEDIA[content_type]}")
         media_file = getattr(media_message, SUPPORTED_MEDIA[content_type])[-1]
-
+        
         # Send context message
         text_message = await bot.send_message(
             chat_id=ADMIN_GROUP_ID,
             text=context_text
         )
-
+        
         # Forward media
         await media_method(
             chat_id=ADMIN_GROUP_ID,
             **{SUPPORTED_MEDIA[content_type]: media_file.file_id},
             reply_to_message_id=text_message.message_id
         )
-
+        
         return text_message
     except Exception as e:
         logger.error(f"Media forwarding error: {e}")
         raise
-
 
 @router.message(Command("start"))
 async def start_command(message: types.Message):
@@ -98,12 +95,11 @@ async def start_command(message: types.Message):
     for module in MODULES:
         builder.add(types.KeyboardButton(text=module))
     builder.adjust(2)
-
+    
     await message.answer(
         "👋 Welcome to Support Bot!\nPlease select a module:",
         reply_markup=builder.as_markup(resize_keyboard=True)
     )
-
 
 @router.message(F.text.in_(MODULES))
 async def handle_module_selection(message: types.Message):
@@ -118,27 +114,26 @@ async def handle_module_selection(message: types.Message):
         reply_markup=types.ReplyKeyboardRemove()
     )
 
-
 @router.message(F.content_type.in_({ContentType.TEXT} | set(SUPPORTED_MEDIA.keys())))
 async def handle_user_question(message: types.Message):
     """Process user questions with media support"""
     user_id = message.from_user.id
     user_state = user_states.get(user_id, {})
-
+    
     if not user_state.get('awaiting_question'):
         await message.answer("Please select a module first using /start")
         return
-
+    
     module = user_state['module']
     username = message.from_user.username or f"user_{user_id}"
-
+    
     try:
         builder = InlineKeyboardBuilder()
         builder.button(
             text="✉️ Respond",
             callback_data=f"respond_{user_id}_{message.chat.id}"
         )
-
+        
         if message.content_type == ContentType.TEXT:
             # Text question
             admin_message = await bot.send_message(
@@ -156,24 +151,23 @@ async def handle_user_question(message: types.Message):
             )
             await admin_message.edit_reply_markup(reply_markup=builder.as_markup())
             question_text = caption
-
+        
         # Store question reference
         pending_questions[admin_message.message_id] = {
             'user_id': user_id,
             'chat_id': message.chat.id,
             'module': module
         }
-
+        
         # Log to CSV
         await write_to_csv(user_id, module, question_text, message.content_type)
-
+        
         await message.answer("✅ Your question was sent to support!")
         user_states.pop(user_id, None)
-
+        
     except Exception as e:
         logger.error(f"Question handling error: {e}")
         await message.answer("❌ Failed to send your question. Please try again.")
-
 
 @router.callback_query(F.data.startswith("respond_"))
 async def handle_response_request(callback: types.CallbackQuery):
@@ -181,13 +175,14 @@ async def handle_response_request(callback: types.CallbackQuery):
     try:
         admin_id = callback.from_user.id
         user_id, chat_id = map(int, callback.data.split("_")[1:3])
-
+        group_msg_id = callback.message.message_id
+        
         # Verify admin
-        chat_member = await bot.get_chat_member(callback.message.chat.id, admin_id)
+        chat_member = await bot.get_chat_member(ADMIN_GROUP_ID, admin_id)
         if chat_member.status not in ['administrator', 'creator']:
             await callback.answer("Only admins can respond")
             return
-
+        
         # Update message to show responding admin
         admin_name = callback.from_user.first_name
         await callback.message.edit_reply_markup(
@@ -195,38 +190,35 @@ async def handle_response_request(callback: types.CallbackQuery):
             .button(text=f"🔄 Responding: {admin_name}", callback_data="handled")
             .as_markup()
         )
-
+        
         # Store response context
         awaiting_responses[admin_id] = {
             'user_id': user_id,
             'chat_id': chat_id,
-            'group_msg_id': callback.message.message_id
+            'group_msg_id': group_msg_id
         }
-
+        
         await callback.answer()
         await bot.send_message(
             admin_id,
             "💬 Send your response (text/media/voice):"
         )
-
+        
     except Exception as e:
         logger.error(f"Response init error: {e}")
         await callback.answer("Failed to initiate response")
 
-
-@router.message(F.chat.type == 'private')
+@router.message(F.from_user.id.in_(awaiting_responses.keys()))
 async def handle_admin_response(message: types.Message):
     """Process admin responses with full media support"""
-    if message.from_user.id not in awaiting_responses:
-        return
-
-    context = awaiting_responses.get(message.from_user.id)
+    admin_id = message.from_user.id
+    context = awaiting_responses.get(admin_id)
     if not context:
         return
 
     try:
         response_header = "📨 Support response:\n\n"
-
+        
         if message.content_type == ContentType.TEXT:
             await bot.send_message(
                 chat_id=context['chat_id'],
@@ -235,8 +227,8 @@ async def handle_admin_response(message: types.Message):
         elif message.content_type in SUPPORTED_MEDIA:
             media_type = SUPPORTED_MEDIA[message.content_type]
             media_file = getattr(message, media_type)[-1]
-            caption = response_header + (message.caption if message.caption else "")
-
+            caption = response_header + (message.caption or "")
+            
             await getattr(bot, f"send_{media_type}")(
                 chat_id=context['chat_id'],
                 **{media_type: media_file.file_id},
@@ -253,23 +245,21 @@ async def handle_admin_response(message: types.Message):
                 message_id=context['group_msg_id'],
                 reply_markup=None
             )
+            pending_questions.pop(context['group_msg_id'], None)
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
 
         await message.answer("✅ Response delivered!")
-        pending_questions.pop(context['group_msg_id'], None)
-        awaiting_responses.pop(message.from_user.id, None)
+        awaiting_responses.pop(admin_id, None)
 
     except Exception as e:
         logger.error(f"Response delivery failed: {str(e)}")
         await message.answer(f"❌ Delivery failed: {str(e)}")
 
-
 async def main():
     dp.include_router(router)
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
