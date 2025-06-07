@@ -12,7 +12,7 @@ from aiogram.filters import Command
 
 # Bot configuration
 BOT_TOKEN = "8146573794:AAGhXSp3JCwYn2cqd9IOykfmLz0KR4WMd74"
-ADMIN_GROUP_ID = --1002459383963
+ADMIN_GROUP_ID = -1002459383963
 CSV_FILE = "questions.csv"
 REPORT_PASSWORD = "menga_savol_ber"
 
