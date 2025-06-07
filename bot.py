@@ -114,7 +114,7 @@ async def handle_module_selection(message: types.Message):
         reply_markup=types.ReplyKeyboardRemove()
     )
 
-@router.message(F.content_type.in_({ContentType.TEXT} | set(SUPPORTED_MEDIA.keys())))
+@router.message(F.chat.type == "private", ~F.from_user.id.in_(awaiting_responses.keys()))
 async def handle_user_question(message: types.Message):
     """Process user questions with media support"""
     user_id = message.from_user.id
