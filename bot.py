@@ -12,8 +12,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.filters import Command
 
 # Bot configuration
-BOT_TOKEN = "8146573794:AAGhXSp3JCwYn2cqd9IOykfmLz0KR4WMd74"
-ADMIN_GROUP_ID = -1002592730994
+BOT_TOKEN = "7383119117:AAFnL4h4B6eF0tzJRLRkWDUVkRf7rdrg1QM"
+ADMIN_GROUP_ID = -1002459383963
 CSV_FILE = "questions.csv"
 REPORT_PASSWORD = "menga_savol_ber"
 
